@@ -23,9 +23,10 @@ def init_db_command() -> None:
 @app.command("crawl")
 def crawl_command(
     source: str | None = typer.Option(None, "--source", help="Source adapter name, like greenhouse."),
+    identifier: str | None = typer.Option(None, "--identifier", help="Source-specific value, like a Greenhouse board token."),
     max_jobs: int | None = typer.Option(None, "--max-jobs", help="Maximum number of jobs to fetch."),
 ) -> None:
-    links = crawl_source(source_name=source, max_jobs=max_jobs)
+    links = crawl_source(source_name=source, identifier=identifier, max_jobs=max_jobs)
 
     typer.echo(f"Crawled {len(links)} job links.")
     for link in links:

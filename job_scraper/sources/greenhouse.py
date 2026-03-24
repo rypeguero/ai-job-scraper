@@ -7,19 +7,24 @@ from bs4 import BeautifulSoup
 from job_scraper.models import ParsedJob
 from job_scraper.sources.base import BaseSource
 
-BOARD_TOKEN = "greenhouse"
+DEFAULT_BOARD_TOKEN = "greenhouse"
 GREENHOUSE_HOSTS = {"job-boards.greenhouse.io", "boards.greenhouse.io"}
 
 
 # Implement the website-specific scraping rules for a public Greenhouse job board.
 class GreenhouseSource(BaseSource):
+     # Store the board token so one adapter can target any Greenhouse board.
+    def __init__(self, board_token: str = DEFAULT_BOARD_TOKEN) -> None:
+        self.board_token = board_token.strip() or DEFAULT_BOARD_TOKEN
+
     # Return the internal source name used across the project.
     def get_source_name(self) -> str:
         return "greenhouse"
 
     # Return the public Greenhouse board page where job links are listed.
+        # Return the public Greenhouse board page where job links are listed.
     def get_start_url(self) -> str:
-        return f"https://job-boards.greenhouse.io/embed/job_board?for={BOARD_TOKEN}"
+        return f"https://job-boards.greenhouse.io/embed/job_board?for={self.board_token}"
 
     # Collect job detail links from the board page and skip placeholder talent-pool posts.
     def collect_job_links(self, page: Any) -> list[str]:
@@ -45,7 +50,8 @@ class GreenhouseSource(BaseSource):
             if _looks_like_placeholder_link_text(text):
                 continue
 
-            normalized_url = _normalize_greenhouse_job_url(self.get_start_url(), href)
+            normalized_url = _normalize_greenhouse_job_url(self.get_start_url(), href, self.board_token)
+
             if not normalized_url:
                 continue
 
@@ -90,7 +96,7 @@ def _looks_like_placeholder_link_text(text: str) -> bool:
 
 
 # Turn a raw href into a canonical Greenhouse job detail URL or reject it if it is not a job page.
-def _normalize_greenhouse_job_url(base_url: str, href: str) -> str | None:
+def _normalize_greenhouse_job_url(base_url: str, href: str, expected_board_token: str) -> str | None:
     cleaned_href = href.strip()
 
     if not cleaned_href:
@@ -119,7 +125,7 @@ def _normalize_greenhouse_job_url(base_url: str, href: str) -> str | None:
         return None
 
     board_token, section_name, job_id = parts
-    if board_token != BOARD_TOKEN:
+    if board_token != expected_board_token:
         return None
 
     if section_name != "jobs":
