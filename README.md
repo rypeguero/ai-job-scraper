@@ -1,25 +1,26 @@
 # AI Job Scraper
 
-A Python job scraper that crawls a public Greenhouse job board, stores raw and parsed job data in SQLite, enriches job descriptions with a local Ollama model, and displays the results in a Streamlit dashboard.
+A Python job ingestion pipeline for public job posting sites. It collects raw job data from multiple providers, normalizes listings into a shared schema, enriches job descriptions with a local Ollama model, and displays the results in a Streamlit dashboard.
 
 ## What This Project Does
 
-This project is a full local data pipeline:
+This project is a full local data pipeline for software job listings:
 
-- crawl public job listings with Playwright
-- save raw HTML for debugging and repeatable parsing
-- parse job pages into structured records with BeautifulSoup
-- validate data with Pydantic models
-- store everything in SQLite
-- enrich jobs with a local LLM through Ollama
-- browse results in a Streamlit dashboard
-- run the whole flow from a Typer CLI
+- ingest jobs from public job posting sites
+- support both browser-based HTML sources and public JSON API sources
+- save raw source data for debugging and repeatable parsing
+- normalize jobs into a shared structured model
+- store parsed and enriched jobs in SQLite
+- enrich job descriptions with a local LLM through Ollama
+- browse and filter results in a Streamlit dashboard
+- run the full pipeline from a Typer CLI
 
 ## Why This Project Is Resume-Worthy
 
-It shows more than scraping. It demonstrates:
+It demonstrates more than a one-off scraper script:
 
 - browser automation
+- API integration
 - HTML parsing
 - schema validation
 - relational storage
@@ -27,12 +28,13 @@ It shows more than scraping. It demonstrates:
 - testing
 - a small product interface
 
-That combination makes it stronger than a one-file scraper script.
+It also shows source-agnostic design by supporting multiple job providers through a shared pipeline.
 
 ## Tech Stack
 
 - Python
 - Playwright
+- httpx
 - BeautifulSoup
 - Pydantic
 - SQLite
@@ -43,13 +45,13 @@ That combination makes it stronger than a one-file scraper script.
 
 ## Pipeline
 
-1. `crawl`
-   Save raw listing and detail HTML pages.
+1. `crawl`  
+   Save raw listing and detail data from a public job source.
 
-2. `parse`
-   Convert raw HTML into structured job records.
+2. `parse`  
+   Convert raw source data into structured job records.
 
-3. `enrich`
+3. `enrich`  
    Use a local LLM to extract:
    - summary
    - seniority
@@ -59,8 +61,31 @@ That combination makes it stronger than a one-file scraper script.
    - salary mentioned
    - confidence
 
-4. `dashboard`
+4. `dashboard`  
    Browse and filter saved jobs visually.
+
+## Supported Source Types
+
+The project is designed for public job posting sites and supports both:
+
+- HTML sources scraped with Playwright
+- API sources fetched with `httpx`
+
+### Currently Wired Sources
+
+- `greenhouse`  
+  HTML-based public job board ingestion
+- `lever`  
+  API-based public postings ingestion
+- `ashby`  
+  API-based public postings ingestion
+
+### Included but Not Active
+
+- `weworkremotely`  
+  kept as an example adapter, but not the primary live source because bot protection blocked scraping during testing
+- `workable`  
+  planned in the source registry, but not yet wired into the fetcher
 
 ## Project Structure
 
@@ -76,39 +101,47 @@ job_scraper/
   parser.py
   prompts.py
   sources/
+    ashby.py
     base.py
     greenhouse.py
+    lever.py
+    registry.py
     weworkremotely.py
 tests/
   fixtures/
     greenhouse_detail.html
   test_db.py
+  test_enrich.py
+  test_parser.py
+data/
+  raw/
+  jobs.db
+README.md
+requirements.txt
 ```
 
 ## How AI Is Used
 
-AI is used for semantic enrichment, not for scraping HTML.
+AI is used for semantic enrichment, not for scraping.
 
-Rule-based code handles the factual parts of the job page:
-- links
+Rule-based source adapters handle factual extraction and normalization:
+
+- job URLs
 - titles
 - company names
 - locations
 - descriptions
+- tags
 
-The local model handles the fuzzy interpretation:
+The local model handles fuzzy interpretation:
+
 - what kind of role it is
 - what skills it implies
 - what seniority it suggests
 - whether it is remote, hybrid, or on-site
+- whether salary information is mentioned
 
 This separation makes the system easier to debug and more reliable.
-
-## Current Source
-
-The default live source is `greenhouse`.
-
-`weworkremotely` is still included as an example source adapter, but it is not the main live source because it returned bot-protection pages during testing.
 
 ## Setup
 
@@ -124,11 +157,35 @@ Make sure Ollama is running before you use the enrichment step.
 
 ## Run The Project
 
+Initialize the database:
+
 ```powershell
 .\.venv\Scripts\python.exe -m job_scraper.cli init-db
-.\.venv\Scripts\python.exe -m job_scraper.cli crawl --source greenhouse --max-jobs 8
-.\.venv\Scripts\python.exe -m job_scraper.cli parse --source greenhouse
-.\.venv\Scripts\python.exe -m job_scraper.cli enrich --source greenhouse --limit 20
+```
+
+Example crawl commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m job_scraper.cli crawl --source greenhouse --identifier greenhouse --max-jobs 8
+.\.venv\Scripts\python.exe -m job_scraper.cli crawl --source lever --identifier welocalize --max-jobs 8
+.\.venv\Scripts\python.exe -m job_scraper.cli crawl --source ashby --identifier ashby --max-jobs 8
+```
+
+Parse saved jobs for a source:
+
+```powershell
+.\.venv\Scripts\python.exe -m job_scraper.cli parse --source lever --limit 20
+```
+
+Enrich parsed jobs with AI:
+
+```powershell
+.\.venv\Scripts\python.exe -m job_scraper.cli enrich --source lever --limit 20
+```
+
+Launch the dashboard:
+
+```powershell
 .\.venv\Scripts\python.exe -m job_scraper.cli dashboard
 ```
 
@@ -140,30 +197,31 @@ Make sure Ollama is running before you use the enrichment step.
 
 ## Design Decisions
 
-- Raw HTML is saved before parsing.
-  Why: this makes debugging easier and avoids re-scraping during parser development.
+- Raw source data is saved before parsing.  
+  Why: this makes debugging easier and avoids re-fetching during parser development.
 
-- Each source gets its own adapter file.
-  Why: websites differ a lot, so source-specific logic should stay isolated.
+- Each provider gets its own source adapter.  
+  Why: public job sites vary a lot in structure and transport type.
 
-- SQLite is used instead of CSV.
+- The source registry defines supported providers in one place.  
+  Why: the CLI and dashboard should not hardcode source options independently.
+
+- Both HTML and API sources feed the same normalized model.  
+  Why: the rest of the pipeline should stay source-agnostic.
+
+- SQLite is used instead of CSV.  
   Why: deduping, querying, and dashboard use are much easier.
 
-- AI output is validated with Pydantic.
-  Why: model output should be treated as untrusted until validated.
-
-- The pipeline is split into crawl, parse, and enrich stages.
-  Why: each stage has one responsibility, which makes the project easier to understand and maintain.
+- AI output is validated before storage.  
+  Why: model output should be treated as untrusted until normalized.
 
 ## Future Improvements
 
-- add more source adapters
-- normalize posted dates into real date values
+- add more public job source adapters
+- finish wiring `workable`
+- add tests for API-based source adapters
+- normalize posted dates into true date fields
 - export results to CSV
-- add search and ranking for target roles
+- add ranking or matching for target roles
+- let the dashboard trigger pipeline actions directly
 - deploy the dashboard
- more source adapters
-normalize posted dates into real date values
-export results to CSV
-add search and ranking for target roles
-deploy the dashboard
